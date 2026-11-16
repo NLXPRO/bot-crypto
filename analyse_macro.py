@@ -7,7 +7,6 @@ def get_fred_events():
     events = []
     annee_actuelle = datetime.now(timezone.utc).year
     
-    # On surveille les indicateurs clés US via FRED
     fred_releases = {
         "50": "Nonfarm Payrolls (NFP)",
         "10": "US CPI (Inflation)",
