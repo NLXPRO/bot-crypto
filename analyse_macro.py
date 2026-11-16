@@ -1,69 +1,73 @@
 # analyse_macro.py
 import requests
 from datetime import datetime, timezone
-from config_macro import FRED_API_KEY, BIQUOTE_KEYWORDS
-from biquote import Biquote
+import xml.etree.ElementTree as ET
+from config_macro import FRED_API_KEY
 
 def get_fred_events():
     events = []
     annee_actuelle = datetime.now(timezone.utc).year
     fred_releases = {"50": "Nonfarm Payrolls (NFP)", "10": "US CPI (Inflation)"}
-
     for release_id, nom in fred_releases.items():
         url = f"https://api.stlouisfed.org/fred/release/dates?release_id={release_id}&api_key={FRED_API_KEY}&file_type=json&realtime_start={annee_actuelle}-01-01&realtime_end={annee_actuelle}-12-31&include_release_dates_with_no_data=true"
         try:
-            # AJOUT DU TIMEOUT ICI : on attend maximum 10 secondes
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             data = response.json()
             for d in data.get('release_dates', []):
                 dt = datetime.strptime(d['date'], "%Y-%m-%d").replace(hour=13, minute=30, tzinfo=timezone.utc)
                 events.append({
-                    "name": nom,
-                    "time": dt,
-                    "countryCode": "US",
-                    "forecast": None,
-                    "actual": None,
-                    "previous": None,
-                    "source": "FRED"
+                    "name": nom, "time": dt, "countryCode": "US",
+                    "forecast": None, "actual": None, "previous": None, "source": "FRED"
                 })
         except Exception as e:
             print(f"Erreur FRED pour {nom}: {e}")
     return events
 
-def get_biquote_events():
-    bq = Biquote()
+def get_forexfactory_events():
+    """Récupère les événements via le flux RSS de Forex Factory."""
     events = []
+    url = "https://www.forexfactory.com/ffcal_week_this.xml"
     try:
-        # Biquote gère mal le timeout interne, mais le try/except va attraper l'erreur si ça bloque
-        raw_events = bq.calendar(importance="high", countries="US,EU")
-        for e in raw_events:
-            name = e.get("name", "")
-            if any(kw.lower() in name.lower() for kw in BIQUOTE_KEYWORDS):
-                dt = datetime.fromisoformat(e.get("time").replace("Z", "+00:00"))
-                events.append({
-                    "name": name,
-                    "time": dt,
-                    "countryCode": e.get("countryCode"),
-                    "forecast": e.get("forecast"),
-                    "actual": e.get("actual"),
-                    "previous": e.get("previous"),
-                    "source": "Biquote"
-                })
+        # On demande le flux XML avec un timeout de 10s
+        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+        response.raise_for_status()
+        root = ET.fromstring(response.content)
+        
+        # On parcourt les événements
+        for item in root.findall('.//event'):
+            impact = item.findtext('impact', '')
+            # On ne garde que les événements à fort impact (High)
+            if impact.lower() == 'high':
+                name = item.findtext('title', '')
+                date_str = item.findtext('date', '')
+                country = item.findtext('country', '')
+                forecast = item.findtext('forecast', '')
+                previous = item.findtext('previous', '')
+                
+                # Conversion de la date (format ForexFactory : ex "11-17-2026 13:30:00")
+                if date_str:
+                    dt = datetime.strptime(date_str, "%m-%d-%Y %H:%M:%S").replace(tzinfo=timezone.utc)
+                    events.append({
+                        "name": name, "time": dt, "countryCode": country,
+                        "forecast": forecast if forecast else None,
+                        "actual": None, "previous": previous if previous else None, "source": "ForexFactory"
+                    })
     except Exception as e:
-        print(f"Erreur Biquote: {e}")
+        print(f"Erreur ForexFactory: {e}")
     return events
 
 def get_all_macro_events():
     fred_events = get_fred_events()
-    biquote_events = get_biquote_events()
+    ff_events = get_forexfactory_events()
     
     all_events = []
-    all_events.extend(biquote_events)
+    all_events.extend(ff_events)
     
+    # On fusionne et on évite les doublons
     for fe in fred_events:
         is_duplicate = False
-        for be in biquote_events:
+        for be in ff_events:
             if fe["name"].lower() in be["name"].lower() and abs((fe["time"] - be["time"]).total_seconds()) < 3600:
                 is_duplicate = True
                 break
@@ -76,8 +80,8 @@ def get_all_macro_events():
 def check_alerts():
     now = datetime.now(timezone.utc)
     events = get_all_macro_events()
-    
     alertes_a_envoyer = []
+    
     for e in events:
         time_diff = e["time"] - now
         minutes_diff = time_diff.total_seconds() / 60
