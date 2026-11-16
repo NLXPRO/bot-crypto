@@ -1,11 +1,9 @@
 # config_macro.py
 import os
 
-FRED_API_KEY = os.environ.get("5061106bb4e8417d598e780e9de37318")
+FRED_API_KEY = os.environ.get("5061106bb4e8417d598e780e9de37318 ")
 TELEGRAM_TOKEN = os.environ.get("9098058364:AAHQS_4sYXzMzO3XYZH6nEA8PZGlC1yeUFY")
 TELEGRAM_CHAT_ID = os.environ.get("7547625760")
 
 HEURES_AVANT_ANNONCE = 2
 MINUTES_APRES_ANNONCE = 30
-
-BIQUOTE_KEYWORDS = ["CPI", "Retail Sales", "Nonfarm", "FOMC", "Fed", "ECB", "Interest Rate"]
